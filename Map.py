@@ -25,6 +25,18 @@ class Zone:
     connections: List["Zone"] = field(default_factory=list)
 
 
+@dataclass
+class Drone:
+    """
+    Represent a Drone position in Fly-in map graph.
+
+    Attributes:
+        x, y: Bidimensional position on graph
+    """
+    x: int
+    y: int
+
+
 class Map:
     """
     Manages the Fly-in map, including parsing input files and building the graph.
@@ -36,11 +48,14 @@ class Map:
         start (str | None): Name of the start zone.
         end (str | None): Name of the end zone.
     """
+    CELL_W: int = 5
+    CELL_H: int = 5
 
     def __init__(self, filepath: str) -> None:
         """Initialize an empty map."""
         self.zones: Dict[str, Zone] = {}
         self.connections: List[Tuple[str, str]] = []
+        self.drones: list[Drone] = []
         self.nb_drones: int = 0
         self.start: str | None = None
         self.end: str | None = None
@@ -51,10 +66,10 @@ class Map:
         self.max_x = max(z.x for z in zones_lst)
         self.min_y = min(z.y for z in zones_lst)
         self.max_y = max(z.y for z in zones_lst)
-        self.width = self.max_x - self.min_x + 1
-        self.height = self.max_y - self.min_y + 1
+        self.width = (self.max_x - self.min_x + 1) * self.CELL_W
+        self.height = (self.max_y - self.min_y + 1) * self.CELL_H
         self.grid = [
-            ["0" for _ in range(self.width)]
+            [" " for _ in range(self.width)]
             for _ in range(self.height)
         ]
         self.grid_fill()
@@ -112,6 +127,7 @@ class Map:
             exit(1)
 
         self.build_graph()
+        self.init_drones()
 
     def parse_nb_drones(self, line: str) -> int:
         """
@@ -231,6 +247,17 @@ class Map:
             self.zones[a].connections.append(self.zones[b])
             self.zones[b].connections.append(self.zones[a])
 
+    def init_drones(self) -> None:
+        if not self.start:
+            raise ValueError("Start zone not defined")
+
+        start_zone = self.zones[self.start]
+
+        self.drones = [
+            Drone(start_zone.x, start_zone.y)
+            for _ in range(self.nb_drones)
+        ]
+
     def error(self, line_nb: int, msg: str) -> None:
         """
         Raise a formatted parsing error.
@@ -246,17 +273,37 @@ class Map:
 
     def grid_fill(self) -> None:
         for zone in self.zones.values():
-            x: int = zone.x - self.min_x
-            y: int = zone.y - self.min_y
-            self.grid[y][x] = '$'
+            x0 = (zone.x - self.min_x) * self.CELL_W
+            y0 = (zone.y - self.min_y) * self.CELL_H
 
-    def render(self, drones: list) -> None:
+            for i in range(self.CELL_W):
+                self.grid[y0][x0 + i] = "#"
+                self.grid[y0 + self.CELL_H - 1][x0 + i] = "#"
+
+            for j in range(self.CELL_H):
+                self.grid[y0 + j][x0] = "#"
+                self.grid[y0 + j][x0 + self.CELL_W - 1] = "#"
+
+    def render(self) -> None:
         display: list[list[str]] = self.grid[:]
 
-        for drone in drones:
-            display[drone.y][drone.x] = '#'
+        for drone in self.drones:
+            cx, cy = self.to_screen(drone.x, drone.y)
+            display[cy][cx] = "D"
 
         for row in display:
             for cell in row:
                 print(cell, end="")
             print()
+
+    def to_screen(self, x: int, y: int) -> tuple[int, int]:
+        gx = x - self.min_x
+        gy = y - self.min_y
+
+        x0 = gx * self.CELL_W
+        y0 = gy * self.CELL_H
+
+        cx = x0 + self.CELL_W // 2
+        cy = y0 + self.CELL_H // 2
+
+        return cx, cy
