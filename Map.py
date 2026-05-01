@@ -1,5 +1,8 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional, Generator
+import heapq
+import time
 
 
 @dataclass
@@ -24,6 +27,14 @@ class Zone:
     color: str | None = None
     connections: List["Zone"] = field(default_factory=list)
 
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Zone):
+            return False
+        return self.name == other.name
+
 
 @dataclass
 class Drone:
@@ -35,6 +46,125 @@ class Drone:
     """
     x: int
     y: int
+
+
+class PathFinder:
+    """
+    Handles all pathfinding logic for the Fly-in map.
+    Uses A* with movement-cost rules based on zone types.
+    """
+
+    def __init__(self, map_obj: "Map") -> None:
+        self.map: Map = map_obj
+
+    # ---------------------------------------------------------
+    # Movement cost based on zone type
+    # ---------------------------------------------------------
+    def movement_cost(self, zone: "Zone") -> float:
+        if zone.zone_type == "blocked":
+            return float("inf")
+        if zone.zone_type == "restricted":
+            return 2.0
+        if zone.zone_type == "priority":
+            return 1.0
+        return 1.0  # normal
+
+    # ---------------------------------------------------------
+    # Heuristic: Manhattan distance (admissible)
+    # ---------------------------------------------------------
+    def heuristic(self, a: "Zone", b: "Zone") -> int:
+        return abs(a.x - b.x) + abs(a.y - b.y)
+
+    # ---------------------------------------------------------
+    # A* algorithm
+    # ---------------------------------------------------------
+    def a_star(self, start: "Zone", goal: "Zone") -> List["Zone"]:
+        open_set: List[Tuple[float, int, Zone]] = []
+        counter: int = 0
+
+        heapq.heappush(open_set, (0.0, counter, start))
+
+        came_from: Dict[Zone, Zone] = {}
+        g_score: Dict[Zone, float] = {start: 0.0}
+        f_score: Dict[Zone, float] = {
+            start: float(self.heuristic(start, goal))}
+
+        while open_set:
+            _, _, current = heapq.heappop(open_set)
+
+            if current == goal:
+                return self.reconstruct_path(came_from, start, goal)
+
+            for neighbor in current.connections:
+                cost: float = self.movement_cost(neighbor)
+                if cost == float("inf"):
+                    continue
+
+                tentative_g: float = g_score[current] + cost
+
+                if tentative_g < g_score.get(neighbor, float("inf")):
+                    came_from[neighbor] = current
+                    g_score[neighbor] = tentative_g
+
+                    priority_bonus: float = -0.1 if neighbor.zone_type == "priority" else 0.0
+
+                    f_score[neighbor] = (
+                        tentative_g
+                        + float(self.heuristic(neighbor, goal))
+                        + priority_bonus
+                    )
+
+                    counter += 1
+                    heapq.heappush(
+                        open_set, (f_score[neighbor], counter, neighbor))
+
+        return []
+
+    # ---------------------------------------------------------
+    # Reconstruct path from A*
+    # ---------------------------------------------------------
+
+    def reconstruct_path(
+        self,
+        came_from: Dict["Zone", "Zone"],
+        start: "Zone",
+        goal: "Zone"
+    ) -> List["Zone"]:
+        path: List[Zone] = []
+        current: Zone = goal
+
+        while current in came_from:
+            path.append(current)
+            current = came_from[current]
+
+        path.append(start)
+        return list(reversed(path))
+
+    # ---------------------------------------------------------
+    # Public method to compute path
+    # ---------------------------------------------------------
+    def find_path(self) -> List["Zone"]:
+        start_zone: Zone = self.map.zones[self.map.start]
+        end_zone: Zone = self.map.zones[self.map.end]
+        return self.a_star(start_zone, end_zone)
+
+    # ---------------------------------------------------------
+    # Optional: Convert path to movement directions
+    # ---------------------------------------------------------
+    def path_to_directions(self, path: List["Zone"]) -> List[str]:
+        directions: List[str] = []
+
+        for a, b in zip(path, path[1:]):
+            if b.x > a.x:
+                directions.append("RIGHT")
+            elif b.x < a.x:
+                directions.append("LEFT")
+            elif b.y > a.y:
+                directions.append("DOWN")
+            elif b.y < a.y:
+                directions.append("UP")
+
+        return directions
 
 
 class Map:
@@ -73,6 +203,9 @@ class Map:
             for _ in range(self.height)
         ]
         self.grid_fill()
+
+        self.pathfinder: PathFinder = PathFinder(self)
+        self.path: list[Zone] = self.pathfinder.find_path()
 
     def parse(self, filepath: str) -> None:
         """
@@ -285,7 +418,7 @@ class Map:
                 self.grid[y0 + j][x0 + self.CELL_W - 1] = "#"
 
     def render(self) -> None:
-        display: list[list[str]] = self.grid[:]
+        display: list[list[str]] = [row[:] for row in self.grid]
 
         for drone in self.drones:
             cx, cy = self.to_screen(drone.x, drone.y)
@@ -307,3 +440,67 @@ class Map:
         cy = y0 + self.CELL_H // 2
 
         return cx, cy
+
+    def simulate_positions(self) -> Generator[list[tuple[int, int]], None, None]:
+        """
+        Generator that yields all drone positions each turn,
+        until every drone has reached the end zone.
+        """
+        if not self.path:
+            raise ValueError("Path not computed.")
+
+        path: list[Zone] = self.path
+        n: int = self.nb_drones
+
+        # Each drone starts at index 0 (start zone)
+        positions: list[int] = [0] * n
+        cooldowns: list[int] = [0] * n
+
+        # Stagger departure: drone i waits i turns before starting
+        departure_delay: list[int] = [i for i in range(n)]
+
+        start_zone: Zone = path[0]
+        for drone in self.drones:
+            drone.x = start_zone.x
+            drone.y = start_zone.y
+
+        # Yield initial snapshot
+        yield [(drone.x, drone.y) for drone in self.drones]
+
+        while any(pos < len(path) - 1 for pos in positions):
+            for i, drone in enumerate(self.drones):
+
+                # Drone hasn't departed yet
+                if departure_delay[i] > 0:
+                    departure_delay[i] -= 1
+                    continue
+
+                # Drone already at end
+                if positions[i] >= len(path) - 1:
+                    continue
+
+                # Drone is waiting due to movement cost
+                if cooldowns[i] > 0:
+                    cooldowns[i] -= 1
+                    continue
+
+                # Move to next zone
+                next_index: int = positions[i] + 1
+                next_zone: Zone = path[next_index]
+
+                drone.x = next_zone.x
+                drone.y = next_zone.y
+                positions[i] = next_index
+
+                cost: float = self.pathfinder.movement_cost(next_zone)
+                cooldowns[i] = int(cost) - 1 if cost > 1 else 0
+
+            yield [(drone.x, drone.y) for drone in self.drones]
+
+    def simulate(self) -> None:
+        for turn, drone_positions in enumerate(self.simulate_positions()):
+            print(f"\n=== Turn {turn} ===")
+            for i, (x, y) in enumerate(drone_positions):
+                print(f"  Drone {i}: ({x}, {y})")
+            self.render()
+            time.sleep(1)
