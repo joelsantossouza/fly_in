@@ -57,9 +57,6 @@ class PathFinder:
     def __init__(self, map_obj: "Map") -> None:
         self.map: Map = map_obj
 
-    # ---------------------------------------------------------
-    # Movement cost based on zone type
-    # ---------------------------------------------------------
     def movement_cost(self, zone: "Zone") -> float:
         if zone.zone_type == "blocked":
             return float("inf")
@@ -67,17 +64,11 @@ class PathFinder:
             return 2.0
         if zone.zone_type == "priority":
             return 1.0
-        return 1.0  # normal
+        return 1.0
 
-    # ---------------------------------------------------------
-    # Heuristic: Manhattan distance (admissible)
-    # ---------------------------------------------------------
     def heuristic(self, a: "Zone", b: "Zone") -> int:
         return abs(a.x - b.x) + abs(a.y - b.y)
 
-    # ---------------------------------------------------------
-    # A* algorithm
-    # ---------------------------------------------------------
     def a_star(self, start: "Zone", goal: "Zone") -> List["Zone"]:
         open_set: List[Tuple[float, int, Zone]] = []
         counter: int = 0
@@ -120,10 +111,6 @@ class PathFinder:
 
         return []
 
-    # ---------------------------------------------------------
-    # Reconstruct path from A*
-    # ---------------------------------------------------------
-
     def reconstruct_path(
         self,
         came_from: Dict["Zone", "Zone"],
@@ -140,17 +127,11 @@ class PathFinder:
         path.append(start)
         return list(reversed(path))
 
-    # ---------------------------------------------------------
-    # Public method to compute path
-    # ---------------------------------------------------------
     def find_path(self) -> List["Zone"]:
         start_zone: Zone = self.map.zones[self.map.start]
         end_zone: Zone = self.map.zones[self.map.end]
         return self.a_star(start_zone, end_zone)
 
-    # ---------------------------------------------------------
-    # Optional: Convert path to movement directions
-    # ---------------------------------------------------------
     def path_to_directions(self, path: List["Zone"]) -> List[str]:
         directions: List[str] = []
 
@@ -404,18 +385,67 @@ class Map:
         """
         raise ValueError(f"Line {line_nb}: {msg}")
 
+    def colorize(self, text: str, color: Optional[str]) -> str:
+        if color is None:
+            return text
+
+        ansi_colors = {
+            "black": "\033[30m",
+            "red": "\033[31m",
+            "green": "\033[32m",
+            "yellow": "\033[33m",
+            "blue": "\033[34m",
+            "magenta": "\033[35m",
+            "cyan": "\033[36m",
+            "white": "\033[37m",
+            "gray": "\033[90m",
+            "orange": "\033[38;5;208m",
+            "purple": "\033[38;5;93m",
+            "brown": "\033[38;5;94m",
+            "maroon": "\033[38;5;52m",
+            "gold": "\033[38;5;220m",
+            "darkred": "\033[38;5;88m",
+            "violet": "\033[38;5;177m",
+            "crimson": "\033[38;5;160m",
+            "pink": "\033[38;5;213m",
+        }
+
+        reset = "\033[0m"
+
+        color = color.lower()
+
+        if color == "rainbow":
+            rainbow_codes = [
+                "\033[31m",
+                "\033[33m",
+                "\033[32m",
+                "\033[36m",
+                "\033[34m",
+                "\033[35m",
+            ]
+            return "".join(
+                f"{rainbow_codes[i % len(rainbow_codes)]}{c}"
+                for i, c in enumerate(text)
+            ) + reset
+
+        code = ansi_colors.get(color, "\033[37m")
+
+        return f"{code}{text}{reset}"
+
     def grid_fill(self) -> None:
         for zone in self.zones.values():
             x0 = (zone.x - self.min_x) * self.CELL_W
             y0 = (zone.y - self.min_y) * self.CELL_H
 
+            border = self.colorize("#", zone.color)
+
             for i in range(self.CELL_W):
-                self.grid[y0][x0 + i] = "#"
-                self.grid[y0 + self.CELL_H - 1][x0 + i] = "#"
+                self.grid[y0][x0 + i] = border
+                self.grid[y0 + self.CELL_H - 1][x0 + i] = border
 
             for j in range(self.CELL_H):
-                self.grid[y0 + j][x0] = "#"
-                self.grid[y0 + j][x0 + self.CELL_W - 1] = "#"
+                self.grid[y0 + j][x0] = border
+                self.grid[y0 + j][x0 + self.CELL_W - 1] = border
 
     def render(self) -> None:
         display: list[list[str]] = [row[:] for row in self.grid]
@@ -452,11 +482,9 @@ class Map:
         path: list[Zone] = self.path
         n: int = self.nb_drones
 
-        # Each drone starts at index 0 (start zone)
         positions: list[int] = [0] * n
         cooldowns: list[int] = [0] * n
 
-        # Stagger departure: drone i waits i turns before starting
         departure_delay: list[int] = [i for i in range(n)]
 
         start_zone: Zone = path[0]
@@ -464,27 +492,22 @@ class Map:
             drone.x = start_zone.x
             drone.y = start_zone.y
 
-        # Yield initial snapshot
         yield [(drone.x, drone.y) for drone in self.drones]
 
         while any(pos < len(path) - 1 for pos in positions):
             for i, drone in enumerate(self.drones):
 
-                # Drone hasn't departed yet
                 if departure_delay[i] > 0:
                     departure_delay[i] -= 1
                     continue
 
-                # Drone already at end
                 if positions[i] >= len(path) - 1:
                     continue
 
-                # Drone is waiting due to movement cost
                 if cooldowns[i] > 0:
                     cooldowns[i] -= 1
                     continue
 
-                # Move to next zone
                 next_index: int = positions[i] + 1
                 next_zone: Zone = path[next_index]
 
