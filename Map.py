@@ -132,21 +132,6 @@ class PathFinder:
         end_zone: Zone = self.map.zones[self.map.end]
         return self.a_star(start_zone, end_zone)
 
-    def path_to_directions(self, path: List["Zone"]) -> List[str]:
-        directions: List[str] = []
-
-        for a, b in zip(path, path[1:]):
-            if b.x > a.x:
-                directions.append("RIGHT")
-            elif b.x < a.x:
-                directions.append("LEFT")
-            elif b.y > a.y:
-                directions.append("DOWN")
-            elif b.y < a.y:
-                directions.append("UP")
-
-        return directions
-
 
 class Map:
     """
