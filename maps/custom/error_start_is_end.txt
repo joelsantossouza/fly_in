@@ -1,0 +1,4 @@
+nb_drones: 1
+start_hub: Same 0 0
+end_hub: Same 0 1
+connection: Same-Same

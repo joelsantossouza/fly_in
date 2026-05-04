@@ -192,6 +192,9 @@ class PathFinder:
         return [P1, P2]
 
 
+VALID_ZONE_TYPES = {"normal", "blocked", "restricted", "priority"}
+
+
 class Map:
     """
     Manages the Fly-in map, including parsing input files and building the graph.
@@ -203,11 +206,11 @@ class Map:
         start (str | None): Name of the start zone.
         end (str | None): Name of the end zone.
     """
+
     CELL_W: int = 5
     CELL_H: int = 5
 
     def __init__(self, filepath: str) -> None:
-        """Initialize an empty map."""
         self.zones: Dict[str, Zone] = {}
         self.connections: List[Tuple[str, str]] = []
         self.drones: list[Drone] = []
@@ -233,15 +236,8 @@ class Map:
         self.paths: list[list[Zone]] = self.pathfinder.find_path()
 
     def parse(self, filepath: str) -> None:
-        """
-        Parse a map file and build internal structures.
+        nb_drones_defined = False
 
-        Args:
-            filepath (str): Path to the input file.
-
-        Raises:
-            ValueError: If the file format is invalid.
-        """
         try:
             with open(filepath, "r") as file:
                 for line_nb, line in enumerate(file, 1):
@@ -251,7 +247,15 @@ class Map:
                         continue
 
                     if line.startswith("nb_drones:"):
+                        if nb_drones_defined:
+                            self.error(
+                                line_nb, "nb_drones defined more than once")
                         self.nb_drones = self.parse_nb_drones(line)
+                        nb_drones_defined = True
+
+                    elif not nb_drones_defined:
+                        self.error(
+                            line_nb, "nb_drones must be the first definition")
 
                     elif line.startswith("start_hub:"):
                         zone = self.parse_zone(line, "start")
@@ -274,7 +278,10 @@ class Map:
                         self.zones[zone.name] = zone
 
                     elif line.startswith("connection:"):
-                        a, b = self.parse_connection(line)
+                        a, b = self.parse_connection(line, line_nb)
+                        if (a, b) in self.connections or (b, a) in self.connections:
+                            self.error(
+                                line_nb, f"Duplicate connection: {a}-{b}")
                         self.connections.append((a, b))
 
                     else:
@@ -284,54 +291,55 @@ class Map:
             print(f"Error: {e}")
             exit(1)
 
+        if not self.start:
+            print("Error: Missing start_hub definition")
+            exit(1)
+        if not self.end:
+            print("Error: Missing end_hub definition")
+            exit(1)
+
         self.build_graph()
         self.init_drones()
 
     def parse_nb_drones(self, line: str) -> int:
-        """
-        Extract the number of drones from a line.
-
-        Args:
-            line (str): Line containing nb_drones.
-
-        Returns:
-            int: Number of drones.
-
-        Raises:
-            ValueError: If the format is invalid.
-        """
         try:
-            return int(line.split(":")[1].strip())
+            value = int(line.split(":")[1].strip())
         except Exception:
             raise ValueError("Invalid nb_drones format")
+        if value <= 0:
+            raise ValueError("nb_drones must be a positive integer")
+        return value
 
     def parse_zone(self, line: str, zone_kind: str) -> Zone:
-        """
-        Parse a zone definition line.
-
-        Args:
-            line (str): Line describing a zone.
-            zone_kind (str): Type of zone declaration (start, end, normal).
-
-        Returns:
-            Zone: Parsed zone object.
-
-        Raises:
-            ValueError: If the format is invalid.
-        """
         parts = line.split()
 
         if len(parts) < 4:
             raise ValueError("Invalid zone format")
 
         name = parts[1]
-        x = int(parts[2])
-        y = int(parts[3])
+        if "-" in name or " " in name:
+            raise ValueError(
+                f"Zone name '{name}' must not contain dashes or spaces")
+
+        try:
+            x = int(parts[2])
+            y = int(parts[3])
+        except ValueError:
+            raise ValueError(f"Zone '{name}' has invalid coordinates")
 
         metadata = self.parse_metadata(parts[4:])
 
         zone_type = metadata.get("zone", "normal")
-        max_drones = int(metadata.get("max_drones", 1))
+        if zone_type not in VALID_ZONE_TYPES:
+            raise ValueError(f"Invalid zone type: '{zone_type}'. Must be one of: {
+                             ', '.join(VALID_ZONE_TYPES)}")
+
+        max_drones_raw = metadata.get("max_drones", "1")
+        if not max_drones_raw.isdigit() or int(max_drones_raw) <= 0:
+            raise ValueError(f"max_drones must be a positive integer, got '{
+                             max_drones_raw}'")
+        max_drones = int(max_drones_raw)
+
         color = metadata.get("color")
 
         if zone_kind in ("start", "end"):
@@ -339,39 +347,29 @@ class Map:
 
         return Zone(name, x, y, zone_type, max_drones, color)
 
-    def parse_connection(self, line: str) -> Tuple[str, str]:
-        """
-        Parse a connection line between two zones.
-
-        Args:
-            line (str): Line describing a connection.
-
-        Returns:
-            Tuple[str, str]: Pair of zone names.
-
-        Raises:
-            ValueError: If the format is invalid.
-        """
+    def parse_connection(self, line: str, line_nb: int) -> Tuple[str, str]:
         try:
-            content = line.split()[1]
+            parts = line.split()
+            content = parts[1]
             a, b = content.split("-")
-            return a, b
         except Exception:
             raise ValueError("Invalid connection format")
 
+        if a not in self.zones:
+            raise ValueError(f"Connection references undefined zone: '{a}'")
+        if b not in self.zones:
+            raise ValueError(f"Connection references undefined zone: '{b}'")
+
+        metadata = self.parse_metadata(parts[2:])
+        if "max_link_capacity" in metadata:
+            cap = metadata["max_link_capacity"]
+            if not cap.isdigit() or int(cap) <= 0:
+                raise ValueError(
+                    f"max_link_capacity must be a positive integer, got '{cap}'")
+
+        return a, b
+
     def parse_metadata(self, parts: List[str]) -> Dict[str, str]:
-        """
-        Parse metadata enclosed in brackets.
-
-        Args:
-            parts (List[str]): Tokens containing metadata.
-
-        Returns:
-            Dict[str, str]: Parsed key-value metadata.
-
-        Raises:
-            ValueError: If metadata format is invalid.
-        """
         if not parts:
             return {}
 
@@ -386,22 +384,15 @@ class Map:
         for pair in content.split():
             if "=" not in pair:
                 raise ValueError("Invalid metadata key=value")
-            key, value = pair.split("=")
+            key, value = pair.split("=", 1)
             metadata[key] = value
 
         return metadata
 
     def build_graph(self) -> None:
-        """
-        Build the graph by linking zones based on parsed connections.
-
-        Raises:
-            ValueError: If a connection references an unknown zone.
-        """
         for a, b in self.connections:
             if a not in self.zones or b not in self.zones:
                 raise ValueError(f"Connection uses unknown zone: {a}-{b}")
-
             self.zones[a].connections.append(self.zones[b])
             self.zones[b].connections.append(self.zones[a])
 

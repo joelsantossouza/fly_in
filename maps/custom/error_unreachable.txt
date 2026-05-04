@@ -1,0 +1,7 @@
+nb_drones: 1
+start_hub: S 0 0
+hub: Island1 1 1
+hub: Island2 0 2
+end_hub: E 2 3
+connection: S-Island1
+connection: Island2-E

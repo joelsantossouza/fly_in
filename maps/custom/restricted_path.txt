@@ -1,0 +1,6 @@
+nb_drones: 1
+start_hub: A 0 0 [max_drones=1]
+hub: B 5 0 [zone=restricted color=red]
+end_hub: C 10 0 [max_drones=1]
+connection: A-B [max_link_capacity=1]
+connection: B-C [max_link_capacity=1]

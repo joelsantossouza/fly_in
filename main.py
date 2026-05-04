@@ -29,4 +29,4 @@ def run_all_maps_recursive(root_dir: str) -> None:
 
 
 if __name__ == "__main__":
-    run_all_maps_recursive("maps/challenger/")
+    run_all_maps_recursive("maps/custom")

@@ -1,0 +1,4 @@
+nb_drones: 1
+start_hub: S 0 0 [color=red max_drones 2
+end_hub: E 10 0
+connection: S-E

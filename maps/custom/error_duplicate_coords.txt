@@ -1,0 +1,6 @@
+nb_drones: 1
+start_hub: Start 0 0
+hub: GhostZone 0 0
+end_hub: End 10 0
+connection: Start-GhostZone
+connection: GhostZone-End

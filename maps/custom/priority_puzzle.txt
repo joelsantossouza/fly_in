@@ -1,0 +1,9 @@
+nb_drones: 4
+start_hub: Start 0 0 [max_drones=4]
+hub: P 5 2 [zone=priority color=gold max_drones=2]
+hub: N 5 -2 [zone=normal color=grey max_drones=2]
+end_hub: End 10 0 [max_drones=4]
+connection: Start-P
+connection: Start-N
+connection: P-End
+connection: N-End
