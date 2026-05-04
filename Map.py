@@ -13,7 +13,8 @@ class Zone:
         name (str): Unique identifier of the zone.
         x (int): X coordinate of the zone.
         y (int): Y coordinate of the zone.
-        zone_type (str): Type of the zone (normal, blocked, restricted, priority).
+        zone_type (str): Type of the zone (normal, blocked, restricted,
+            priority).
         max_drones (int): Maximum number of drones allowed simultaneously.
         color (str | None): Optional color for visualization.
         connections (List[Zone]): Adjacent zones (neighbors in the graph).
@@ -22,7 +23,7 @@ class Zone:
     x: int
     y: int
     zone_type: str = "normal"
-    max_drones: int = 1
+    max_drones: int | float = 1
     color: str | None = None
     connections: List["Zone"] = field(default_factory=list)
 
@@ -96,7 +97,9 @@ class PathFinder:
                     came_from[neighbor] = current
                     g_score[neighbor] = tentative_g
 
-                    priority_bonus: float = -0.1 if neighbor.zone_type == "priority" else 0.0
+                    priority_bonus: float = (
+                        -0.1 if neighbor.zone_type == "priority" else 0.0
+                    )
 
                     f_score[neighbor] = (
                         tentative_g
@@ -133,8 +136,11 @@ class PathFinder:
         return cost
 
     def find_path(self) -> list[list["Zone"]]:
-        start_zone = self.map.zones[self.map.start]
-        end_zone = self.map.zones[self.map.end]
+        assert self.map.start is not None
+        assert self.map.end is not None
+
+        start_zone: "Zone" = self.map.zones[self.map.start]
+        end_zone: "Zone" = self.map.zones[self.map.end]
 
         # First shortest path
         P1 = self.a_star(start_zone, end_zone)
@@ -197,7 +203,8 @@ VALID_ZONE_TYPES = {"normal", "blocked", "restricted", "priority"}
 
 class Map:
     """
-    Manages the Fly-in map, including parsing input files and building the graph.
+    Manages the Fly-in map, including parsing input files and building the
+    graph.
 
     Attributes:
         zones (Dict[str, Zone]): Dictionary of all zones indexed by name.
@@ -285,9 +292,11 @@ class Map:
 
                     elif line.startswith("connection:"):
                         a, b = self.parse_connection(line, line_nb)
-                        if (a, b) in self.connections or (b, a) in self.connections:
+                        if ((a, b) in self.connections
+                                or (b, a) in self.connections):
                             self.error(
-                                line_nb, f"Duplicate connection: {a}-{b}")
+                                line_nb, f"Duplicate connection: {a}-{b}"
+                            )
                         self.connections.append((a, b))
 
                     else:
@@ -337,14 +346,16 @@ class Map:
 
         zone_type = metadata.get("zone", "normal")
         if zone_type not in VALID_ZONE_TYPES:
-            raise ValueError(f"Invalid zone type: '{zone_type}'. Must be one of: {
-                             ', '.join(VALID_ZONE_TYPES)}")
+            raise ValueError(
+                f"Invalid zone type: '{zone_type}'. "
+                f"Must be one of: {', '.join(VALID_ZONE_TYPES)}"
+            )
 
         max_drones_raw = metadata.get("max_drones", "1")
         if not max_drones_raw.isdigit() or int(max_drones_raw) <= 0:
             raise ValueError(f"max_drones must be a positive integer, got '{
                              max_drones_raw}'")
-        max_drones = int(max_drones_raw)
+        max_drones: int | float = int(max_drones_raw)
 
         color = metadata.get("color")
 
@@ -371,7 +382,9 @@ class Map:
             cap = metadata["max_link_capacity"]
             if not cap.isdigit() or int(cap) <= 0:
                 raise ValueError(
-                    f"max_link_capacity must be a positive integer, got '{cap}'")
+                    "max_link_capacity must be a positive integer, "
+                    f"got '{cap}'"
+                )
 
         return a, b
 
@@ -512,7 +525,8 @@ class Map:
 
         return cx, cy
 
-    def simulate_positions(self) -> Generator[list[tuple[int, int]], None, None]:
+    def simulate_positions(self
+                           ) -> Generator[list[tuple[int, int]], None, None]:
         """
         Generator that yields all drone positions each turn,
         enforcing zone capacity limits and multi-turn zone traversal,
@@ -523,16 +537,12 @@ class Map:
 
         n: int = self.nb_drones
 
-        # Per-drone progress along its path
         positions: list[int] = [0] * n
 
-        # Staggered departure
         departure_delay: list[int] = [i for i in range(n)]
 
-        # Zone-based travel time remaining (for multi-turn zones)
         zone_travel_remaining: dict[tuple[int, int], int] = {}
 
-        # Initialize all drones at start of their path (paths share same start)
         start_zone: Zone = self.paths[0][0]
         for drone in self.drones:
             drone.x = start_zone.x
@@ -546,13 +556,11 @@ class Map:
 
         while any(drone_not_finished(i) for i in range(n)):
 
-            # --- INITIAL OCCUPANCY SNAPSHOT ---
             zone_occupancy: dict[tuple[int, int], int] = {}
             for drone in self.drones:
                 pos = (drone.x, drone.y)
                 zone_occupancy[pos] = zone_occupancy.get(pos, 0) + 1
 
-            # Process drones from front to back (more advanced first)
             drone_order = sorted(
                 range(n), key=lambda i: positions[i], reverse=True)
 
@@ -560,30 +568,24 @@ class Map:
                 drone = self.drones[i]
                 path = self.paths[0] if i % 2 == 0 else self.paths[-1]
 
-                # Handle departure delay
                 if departure_delay[i] > 0:
                     departure_delay[i] -= 1
                     continue
 
-                # Already at goal
                 if positions[i] >= len(path) - 1:
                     continue
 
-                # Determine next zone
                 next_index = positions[i] + 1
                 next_zone = path[next_index]
                 next_pos = (next_zone.x, next_zone.y)
 
-                # Zone still "busy" from previous traversal?
                 if zone_travel_remaining.get(next_pos, 0) > 0:
                     continue
 
-                # Capacity check
                 current_count = zone_occupancy.get(next_pos, 0)
                 if current_count >= next_zone.max_drones:
                     continue
 
-                # --- MOVE DRONE ---
                 old_pos = (drone.x, drone.y)
                 zone_occupancy[old_pos] -= 1
 
@@ -593,16 +595,13 @@ class Map:
 
                 zone_occupancy[next_pos] = current_count + 1
 
-                # Set zone travel time (multi-turn zones)
                 travel_time = int(self.pathfinder.movement_cost(next_zone))
                 if travel_time > 1:
-                    # Keep the max if multiple drones enter same zone in same turn
                     zone_travel_remaining[next_pos] = max(
                         zone_travel_remaining.get(next_pos, 0),
                         travel_time - 1
                     )
 
-            # Decrease zone travel timers at end of turn
             for z in list(zone_travel_remaining.keys()):
                 if zone_travel_remaining[z] > 0:
                     zone_travel_remaining[z] -= 1
@@ -616,10 +615,11 @@ class Map:
         Only drones that move in a turn are printed.
         Drones that reach the end zone disappear.
         """
-        # Track previous positions to detect movement
+
+        assert self.start is not None
+
         previous_positions = [(drone.x, drone.y) for drone in self.drones]
 
-        # Track which drones are already delivered
         delivered = [False] * self.nb_drones
 
         for turn, drone_positions in enumerate(self.simulate_positions()):
@@ -630,14 +630,12 @@ class Map:
             for i, (x, y) in enumerate(drone_positions):
 
                 if delivered[i]:
-                    continue  # already delivered
+                    continue
 
                 old_x, old_y = previous_positions[i]
 
-                # Detect movement
                 if (x, y) != (old_x, old_y):
 
-                    # Identify the zone the drone moved into
                     next_zone = None
                     for z in self.zones.values():
                         if z.x == x and z.y == y:
@@ -645,35 +643,28 @@ class Map:
                             break
 
                     if next_zone is None:
-                        continue  # should not happen
+                        continue
 
-                    # Check if drone reached the end zone
                     if next_zone.name == self.end:
                         movements.append(f"D{i+1}-{next_zone.name}")
                         delivered[i] = True
                         continue
 
-                    # Restricted zone → output connection name
                     if next_zone.zone_type == "restricted":
-                        # Build a connection name (you can customize this)
                         connection_name = f"{
                             self.zones[self.start].name}-{next_zone.name}"
                         movements.append(f"D{i+1}-{connection_name}")
 
                     else:
-                        # Normal zone
                         movements.append(f"D{i+1}-{next_zone.name}")
 
-            # Print only if something moved this turn
             if movements:
                 print(" ".join(movements))
 
-            # Update previous positions
             previous_positions = drone_positions
 
             self.render()
             time.sleep(1)
 
-            # End simulation when all drones delivered
             if all(delivered):
                 break
