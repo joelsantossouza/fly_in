@@ -235,6 +235,14 @@ class Map:
         self.pathfinder: PathFinder = PathFinder(self)
         self.paths: list[list[Zone]] = self.pathfinder.find_path()
 
+    def register_zone(self, zone: "Zone", line_nb: int) -> None:
+        if zone.name in self.zones:
+            self.error(line_nb, f"Duplicate zone name: '{zone.name}'")
+        if any(z.x == zone.x and z.y == zone.y for z in self.zones.values()):
+            self.error(
+                line_nb, f"Duplicate zone position: ({zone.x}, {zone.y})")
+        self.zones[zone.name] = zone
+
     def parse(self, filepath: str) -> None:
         nb_drones_defined = False
 
@@ -261,21 +269,19 @@ class Map:
                         zone = self.parse_zone(line, "start")
                         if self.start:
                             self.error(line_nb, "Multiple start_hub defined")
+                        self.register_zone(zone, line_nb)
                         self.start = zone.name
-                        self.zones[zone.name] = zone
 
                     elif line.startswith("end_hub:"):
                         zone = self.parse_zone(line, "end")
                         if self.end:
                             self.error(line_nb, "Multiple end_hub defined")
+                        self.register_zone(zone, line_nb)
                         self.end = zone.name
-                        self.zones[zone.name] = zone
 
                     elif line.startswith("hub:"):
                         zone = self.parse_zone(line, "normal")
-                        if zone.name in self.zones:
-                            self.error(line_nb, "Duplicate zone name")
-                        self.zones[zone.name] = zone
+                        self.register_zone(zone, line_nb)
 
                     elif line.startswith("connection:"):
                         a, b = self.parse_connection(line, line_nb)
