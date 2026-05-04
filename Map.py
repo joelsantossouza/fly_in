@@ -142,22 +142,18 @@ class PathFinder:
         start_zone: "Zone" = self.map.zones[self.map.start]
         end_zone: "Zone" = self.map.zones[self.map.end]
 
-        # First shortest path
         P1 = self.a_star(start_zone, end_zone)
         if not P1:
             return []
 
-        # Store candidate paths
         candidates = []
 
-        # For each node in P1 except the last
         for i in range(len(P1) - 1):
             spur_node = P1[i]
             root_path = P1[:i + 1]
 
             removed_edges = []
 
-            # Remove edges that would recreate the same prefix
             for path in [P1]:
                 if len(path) > i and path[:i + 1] == root_path:
                     a = path[i]
@@ -169,29 +165,23 @@ class PathFinder:
                         b.connections.remove(a)
                         removed_edges.append((b, a))
 
-            # Spur path from spur_node to goal
             spur_path = self.a_star(spur_node, end_zone)
 
-            # Restore edges
             for a, b in removed_edges:
                 a.connections.append(b)
 
             if spur_path:
-                # Combine root + spur (avoid duplicating spur_node)
                 total_path = root_path[:-1] + spur_path
                 candidates.append(total_path)
 
-            # Stop early if we already found 1 alternative
             if len(candidates) >= 1:
                 break
 
         if not candidates:
             return [P1]
 
-        # Choose the best candidate
         P2 = min(candidates, key=lambda p: self.path_cost(p))
 
-        # If P2 is identical to P1, return only one
         if P2 == P1:
             return [P1]
 

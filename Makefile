@@ -5,7 +5,7 @@ install:
 	python3 -m pip install -r requirements.txt
 
 run:
-	python3 $(MAIN)
+	python3 $(MAIN) ./maps/challenger/01_the_impossible_dream.txt
 
 debug:
 	python3 -m pdb $(MAIN)
