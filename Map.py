@@ -1,4 +1,3 @@
-from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional, Generator
 import heapq
@@ -127,10 +126,70 @@ class PathFinder:
         path.append(start)
         return list(reversed(path))
 
-    def find_path(self) -> List["Zone"]:
-        start_zone: Zone = self.map.zones[self.map.start]
-        end_zone: Zone = self.map.zones[self.map.end]
-        return self.a_star(start_zone, end_zone)
+    def path_cost(self, path: list["Zone"]) -> float:
+        cost = 0.0
+        for i in range(len(path) - 1):
+            cost += self.movement_cost(path[i + 1])
+        return cost
+
+    def find_path(self) -> list[list["Zone"]]:
+        start_zone = self.map.zones[self.map.start]
+        end_zone = self.map.zones[self.map.end]
+
+        # First shortest path
+        P1 = self.a_star(start_zone, end_zone)
+        if not P1:
+            return []
+
+        # Store candidate paths
+        candidates = []
+
+        # For each node in P1 except the last
+        for i in range(len(P1) - 1):
+            spur_node = P1[i]
+            root_path = P1[:i + 1]
+
+            removed_edges = []
+
+            # Remove edges that would recreate the same prefix
+            for path in [P1]:
+                if len(path) > i and path[:i + 1] == root_path:
+                    a = path[i]
+                    b = path[i + 1]
+                    if b in a.connections:
+                        a.connections.remove(b)
+                        removed_edges.append((a, b))
+                    if a in b.connections:
+                        b.connections.remove(a)
+                        removed_edges.append((b, a))
+
+            # Spur path from spur_node to goal
+            spur_path = self.a_star(spur_node, end_zone)
+
+            # Restore edges
+            for a, b in removed_edges:
+                a.connections.append(b)
+
+            if spur_path:
+                # Combine root + spur (avoid duplicating spur_node)
+                total_path = root_path[:-1] + spur_path
+                candidates.append(total_path)
+
+            # Stop early if we already found 1 alternative
+            if len(candidates) >= 1:
+                break
+
+        if not candidates:
+            return [P1]
+
+        # Choose the best candidate
+        P2 = min(candidates, key=lambda p: self.path_cost(p))
+
+        # If P2 is identical to P1, return only one
+        if P2 == P1:
+            return [P1]
+
+        return [P1, P2]
 
 
 class Map:
@@ -171,7 +230,7 @@ class Map:
         self.grid_fill()
 
         self.pathfinder: PathFinder = PathFinder(self)
-        self.path: list[Zone] = self.pathfinder.find_path()
+        self.paths: list[list[Zone]] = self.pathfinder.find_path()
 
     def parse(self, filepath: str) -> None:
         """
@@ -459,49 +518,97 @@ class Map:
     def simulate_positions(self) -> Generator[list[tuple[int, int]], None, None]:
         """
         Generator that yields all drone positions each turn,
-        until every drone has reached the end zone.
+        enforcing zone capacity limits and multi-turn zone traversal,
+        with even/odd drones using different shortest paths.
         """
-        if not self.path:
+        if not self.paths:
             raise ValueError("Path not computed.")
 
-        path: list[Zone] = self.path
         n: int = self.nb_drones
 
+        # Per-drone progress along its path
         positions: list[int] = [0] * n
-        cooldowns: list[int] = [0] * n
 
+        # Staggered departure
         departure_delay: list[int] = [i for i in range(n)]
 
-        start_zone: Zone = path[0]
+        # Zone-based travel time remaining (for multi-turn zones)
+        zone_travel_remaining: dict[tuple[int, int], int] = {}
+
+        # Initialize all drones at start of their path (paths share same start)
+        start_zone: Zone = self.paths[0][0]
         for drone in self.drones:
             drone.x = start_zone.x
             drone.y = start_zone.y
 
         yield [(drone.x, drone.y) for drone in self.drones]
 
-        while any(pos < len(path) - 1 for pos in positions):
-            for i, drone in enumerate(self.drones):
+        def drone_not_finished(idx: int) -> bool:
+            path = self.paths[0] if idx % 2 == 0 else self.paths[-1]
+            return positions[idx] < len(path) - 1
 
+        while any(drone_not_finished(i) for i in range(n)):
+
+            # --- INITIAL OCCUPANCY SNAPSHOT ---
+            zone_occupancy: dict[tuple[int, int], int] = {}
+            for drone in self.drones:
+                pos = (drone.x, drone.y)
+                zone_occupancy[pos] = zone_occupancy.get(pos, 0) + 1
+
+            # Process drones from front to back (more advanced first)
+            drone_order = sorted(
+                range(n), key=lambda i: positions[i], reverse=True)
+
+            for i in drone_order:
+                drone = self.drones[i]
+                path = self.paths[0] if i % 2 == 0 else self.paths[-1]
+
+                # Handle departure delay
                 if departure_delay[i] > 0:
                     departure_delay[i] -= 1
                     continue
 
+                # Already at goal
                 if positions[i] >= len(path) - 1:
                     continue
 
-                if cooldowns[i] > 0:
-                    cooldowns[i] -= 1
+                # Determine next zone
+                next_index = positions[i] + 1
+                next_zone = path[next_index]
+                next_pos = (next_zone.x, next_zone.y)
+
+                # Zone still "busy" from previous traversal?
+                if zone_travel_remaining.get(next_pos, 0) > 0:
                     continue
 
-                next_index: int = positions[i] + 1
-                next_zone: Zone = path[next_index]
+                # Capacity check
+                current_count = zone_occupancy.get(next_pos, 0)
+                if current_count >= next_zone.max_drones:
+                    continue
+
+                # --- MOVE DRONE ---
+                old_pos = (drone.x, drone.y)
+                zone_occupancy[old_pos] -= 1
 
                 drone.x = next_zone.x
                 drone.y = next_zone.y
                 positions[i] = next_index
 
-                cost: float = self.pathfinder.movement_cost(next_zone)
-                cooldowns[i] = int(cost) - 1 if cost > 1 else 0
+                zone_occupancy[next_pos] = current_count + 1
+
+                # Set zone travel time (multi-turn zones)
+                travel_time = int(self.pathfinder.movement_cost(next_zone))
+                if travel_time > 1:
+                    # Keep the max if multiple drones enter same zone in same turn
+                    zone_travel_remaining[next_pos] = max(
+                        zone_travel_remaining.get(next_pos, 0),
+                        travel_time - 1
+                    )
+
+            # Decrease zone travel timers at end of turn
+            for z in list(zone_travel_remaining.keys()):
+                if zone_travel_remaining[z] > 0:
+                    zone_travel_remaining[z] -= 1
 
             yield [(drone.x, drone.y) for drone in self.drones]
 

@@ -21,9 +21,12 @@ def run_all_maps_recursive(root_dir: str) -> None:
 
     for file in map_files:
         print(f"\n=== Running map: {file} ===")
-        map_obj: Map = Map(file)
-        map_obj.simulate()
+        try:
+            map_obj: Map = Map(file)
+            map_obj.simulate()
+        except Exception:
+            continue
 
 
 if __name__ == "__main__":
-    run_all_maps_recursive("maps")
+    run_all_maps_recursive("maps/challenger/")
