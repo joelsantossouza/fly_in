@@ -29,4 +29,6 @@ def run_all_maps_recursive(root_dir: str) -> None:
 
 
 if __name__ == "__main__":
-    run_all_maps_recursive("maps/custom")
+    run_all_maps_recursive("maps/easy")
+    run_all_maps_recursive("maps/medium")
+    run_all_maps_recursive("maps/hard")

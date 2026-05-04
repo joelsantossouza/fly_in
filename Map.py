@@ -610,9 +610,70 @@ class Map:
             yield [(drone.x, drone.y) for drone in self.drones]
 
     def simulate(self) -> None:
+        """
+        Outputs simulation logs in the required format:
+        D<ID>-<zone> or D<ID>-<connection>
+        Only drones that move in a turn are printed.
+        Drones that reach the end zone disappear.
+        """
+        # Track previous positions to detect movement
+        previous_positions = [(drone.x, drone.y) for drone in self.drones]
+
+        # Track which drones are already delivered
+        delivered = [False] * self.nb_drones
+
         for turn, drone_positions in enumerate(self.simulate_positions()):
-            print(f"\n=== Turn {turn} ===")
+
+            print(f"=== Turn {turn} ===")
+            movements = []
+
             for i, (x, y) in enumerate(drone_positions):
-                print(f"  Drone {i}: ({x}, {y})")
+
+                if delivered[i]:
+                    continue  # already delivered
+
+                old_x, old_y = previous_positions[i]
+
+                # Detect movement
+                if (x, y) != (old_x, old_y):
+
+                    # Identify the zone the drone moved into
+                    next_zone = None
+                    for z in self.zones.values():
+                        if z.x == x and z.y == y:
+                            next_zone = z
+                            break
+
+                    if next_zone is None:
+                        continue  # should not happen
+
+                    # Check if drone reached the end zone
+                    if next_zone.name == self.end:
+                        movements.append(f"D{i+1}-{next_zone.name}")
+                        delivered[i] = True
+                        continue
+
+                    # Restricted zone → output connection name
+                    if next_zone.zone_type == "restricted":
+                        # Build a connection name (you can customize this)
+                        connection_name = f"{
+                            self.zones[self.start].name}-{next_zone.name}"
+                        movements.append(f"D{i+1}-{connection_name}")
+
+                    else:
+                        # Normal zone
+                        movements.append(f"D{i+1}-{next_zone.name}")
+
+            # Print only if something moved this turn
+            if movements:
+                print(" ".join(movements))
+
+            # Update previous positions
+            previous_positions = drone_positions
+
             self.render()
             time.sleep(1)
+
+            # End simulation when all drones delivered
+            if all(delivered):
+                break
