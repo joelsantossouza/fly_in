@@ -344,8 +344,10 @@ class Map:
 
         max_drones_raw = metadata.get("max_drones", "1")
         if not max_drones_raw.isdigit() or int(max_drones_raw) <= 0:
-            raise ValueError(f"max_drones must be a positive integer, got '{
-                             max_drones_raw}'")
+            raise ValueError(
+                "max_drones must be a positive integer, "
+                f"got '{max_drones_raw}'"
+            )
         max_drones: int | float = int(max_drones_raw)
 
         color = metadata.get("color")
@@ -671,8 +673,8 @@ class Map:
                         continue
 
                     if next_zone.zone_type == "restricted":
-                        connection_name = f"{
-                            self.zones[self.start].name}-{next_zone.name}"
+                        connection_name = f"{self.zones[self.start].name}-" \
+                            f"{next_zone.name}"
                         movements.append(f"D{i+1}-{connection_name}")
 
                     else:
