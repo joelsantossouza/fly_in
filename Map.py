@@ -210,6 +210,7 @@ class Map:
     def __init__(self, filepath: str) -> None:
         self.zones: Dict[str, Zone] = {}
         self.connections: List[Tuple[str, str]] = []
+        self.link_capacity: dict[tuple[str, str], int | float] = {}
         self.drones: list[Drone] = []
         self.nb_drones: int = 0
         self.start: str | None = None
@@ -368,13 +369,21 @@ class Map:
             raise ValueError(f"Connection references undefined zone: '{b}'")
 
         metadata = self.parse_metadata(parts[2:])
-        if "max_link_capacity" in metadata:
-            cap = metadata["max_link_capacity"]
+        cap = metadata.get("max_link_capacity")
+
+        if cap is not None:
             if not cap.isdigit() or int(cap) <= 0:
                 raise ValueError(
                     "max_link_capacity must be a positive integer, "
                     f"got '{cap}'"
                 )
+            capacity: int | float = int(cap)
+        else:
+            capacity = float("inf")
+
+        # Store capacity for both directions
+        self.link_capacity[(a, b)] = capacity
+        self.link_capacity[(b, a)] = capacity
 
         return a, b
 
@@ -551,6 +560,8 @@ class Map:
                 pos = (drone.x, drone.y)
                 zone_occupancy[pos] = zone_occupancy.get(pos, 0) + 1
 
+            link_usage: dict[tuple[str, str], int] = {}
+
             drone_order = sorted(
                 range(n), key=lambda i: positions[i], reverse=True)
 
@@ -576,6 +587,15 @@ class Map:
                 if current_count >= next_zone.max_drones:
                     continue
 
+                old_zone = path[positions[i]]
+                link_key = (old_zone.name, next_zone.name)
+
+                allowed = self.link_capacity.get(link_key, float("inf"))
+                used = link_usage.get(link_key, 0)
+
+                if used >= allowed:
+                    continue
+
                 old_pos = (drone.x, drone.y)
                 zone_occupancy[old_pos] -= 1
 
@@ -584,6 +604,7 @@ class Map:
                 positions[i] = next_index
 
                 zone_occupancy[next_pos] = current_count + 1
+                link_usage[link_key] = used + 1
 
                 travel_time = int(self.pathfinder.movement_cost(next_zone))
                 if travel_time > 1:
