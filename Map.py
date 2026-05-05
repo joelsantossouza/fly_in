@@ -182,7 +182,7 @@ class PathFinder:
 
         P2 = min(candidates, key=lambda p: self.path_cost(p))
 
-        if P2 == P1:
+        if P2 == P1 or self.path_cost(P2) >= self.path_cost(P1) + 2:
             return [P1]
 
         return [P1, P2]
@@ -528,8 +528,9 @@ class Map:
                            ) -> Generator[list[tuple[int, int]], None, None]:
         """
         Generator that yields all drone positions each turn,
-        enforcing zone capacity limits and multi-turn zone traversal,
-        with even/odd drones using different shortest paths.
+        enforcing zone capacity limits, link capacity limits,
+        and multi-turn restricted zone traversal.
+        Even drones use path 0, odd drones use path 1.
         """
         if not self.paths:
             raise ValueError("Path not computed.")
@@ -541,6 +542,8 @@ class Map:
         departure_delay: list[int] = [i for i in range(n)]
 
         zone_travel_remaining: dict[tuple[int, int], int] = {}
+
+        drone_travel_remaining: list[int] = [0] * n
 
         start_zone: Zone = self.paths[0][0]
         for drone in self.drones:
@@ -571,6 +574,10 @@ class Map:
 
                 if departure_delay[i] > 0:
                     departure_delay[i] -= 1
+                    continue
+
+                if drone_travel_remaining[i] > 0:
+                    drone_travel_remaining[i] -= 1
                     continue
 
                 if positions[i] >= len(path) - 1:
@@ -608,6 +615,8 @@ class Map:
 
                 travel_time = int(self.pathfinder.movement_cost(next_zone))
                 if travel_time > 1:
+                    drone_travel_remaining[i] = travel_time - 1
+
                     zone_travel_remaining[next_pos] = max(
                         zone_travel_remaining.get(next_pos, 0),
                         travel_time - 1
