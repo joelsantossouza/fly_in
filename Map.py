@@ -381,7 +381,7 @@ class Map:
                 )
             capacity: int | float = int(cap)
         else:
-            capacity = float("inf")
+            capacity = 1
 
         # Store capacity for both directions
         self.link_capacity[(a, b)] = capacity
@@ -525,6 +525,20 @@ class Map:
         cy = y0 + self.CELL_H // 2
 
         return cx, cy
+
+    def get_capacity(self, link_usage: dict[tuple[int, int], int],
+                     zone_occupancy: dict[tuple[int, int], int]
+                     ) -> None:
+        for zone in self.zones.values():
+            pos: tuple[int, int] = (zone.x, zone.y)
+            used: int = zone_occupancy.get(pos, 0)
+            print(f"Zone {zone.name}: {used}/{zone.max_drones}")
+        for conn in self.connections:
+            used: int = link_usage.get(conn, 0)
+            print(
+                f"Connection {conn[0]}-{conn[1]}: "
+                f"{used}/{self.link_capacity[conn]}"
+            )
 
     def simulate_positions(self
                            ) -> Generator[list[tuple[int, int]], None, None]:
